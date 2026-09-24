@@ -30,8 +30,8 @@ function Save-Screenshot([string]$Name) {
     $window = $script:Gui.Window
     $window.UpdateLayout()
     $content = $window.Content
-    $width = [int][math]::Ceiling($window.ActualWidth)
-    $height = [int][math]::Ceiling($window.ActualHeight)
+    $width = [int][math]::Ceiling($content.ActualWidth + $content.Margin.Left + $content.Margin.Right)
+    $height = [int][math]::Ceiling($content.ActualHeight + $content.Margin.Top + $content.Margin.Bottom)
     $visual = New-Object System.Windows.Media.DrawingVisual
     $dc = $visual.RenderOpen()
     $dc.DrawRectangle($window.Background, $null, (New-Object System.Windows.Rect(0, 0, $width, $height)))
@@ -63,6 +63,14 @@ function Save-Screenshot([string]$Name) {
     }
 }
 
+function Test-FullyVisible([string]$Name) {
+    # True when the control lies entirely inside the window's content area (not cut off).
+    $content = $script:Gui.Window.Content
+    $control = $script:Gui.Controls[$Name]
+    $box = $control.TransformToAncestor($content).TransformBounds((New-Object System.Windows.Rect(0, 0, $control.ActualWidth, $control.ActualHeight)))
+    ($box.Left -ge -1) -and ($box.Top -ge -1) -and ($box.Right -le $content.ActualWidth + 1) -and ($box.Bottom -le $content.ActualHeight + 1) -and ($control.ActualWidth -gt 0)
+}
+
 function Get-LogText { (@($script:Gui.LogLines | ForEach-Object { $_[1] }) -join "`n") }
 
 $adv = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced'
@@ -75,6 +83,11 @@ $script:Steps.Enqueue({
         Test-That (@(Get-GuiChecked $c.TweakPanel).Count -ge 30) 'window opens with the Recommended settings ticked'
         Test-That (@(Get-GuiChecked $c.AppPanel).Count -ge 8) 'window opens with the Recommended apps ticked'
         Test-That ($c.SelectionSummary.Text -match '\d+ of \d+ settings') "selection summary: $($c.SelectionSummary.Text)"
+        $window = $script:Gui.Window
+        Write-Host ("window {0:N0} x {1:N0}, work area {2:N0} x {3:N0}" -f $window.ActualWidth, $window.ActualHeight, [System.Windows.SystemParameters]::WorkArea.Width, [System.Windows.SystemParameters]::WorkArea.Height)
+        foreach ($name in 'ApplyButton', 'PreviewButton', 'SelectionSummary', 'SystemInfo', 'ShowDetailsBox', 'StatusText', 'LogBox') {
+            Test-That (Test-FullyVisible $name) "$name is fully visible (not cut off)"
+        }
         Save-Screenshot '1-debloat-tab'
         Set-GuiPreset 'Aggressive'
         Test-That (@(Get-GuiChecked $c.AppPanel).Count -gt 20) 'Aggressive preset ticks more apps'
@@ -168,8 +181,8 @@ Show-DeBloatifyGui -TestMode -TestScript $driver -Context @{
 
 $failed = @($script:Checks | Where-Object { -not $_.Ok })
 Write-Host ''
-if ($script:Checks.Count -lt 15 -or $failed.Count -gt 0) {
-    Write-Host ("{0} of {1} GUI checks failed (a full run makes 15 checks)" -f $failed.Count, $script:Checks.Count) -ForegroundColor Red
+if ($script:Checks.Count -lt 22 -or $failed.Count -gt 0) {
+    Write-Host ("{0} of {1} GUI checks failed (a full run makes 22 checks)" -f $failed.Count, $script:Checks.Count) -ForegroundColor Red
     exit 1
 }
 Write-Host "All $($script:Checks.Count) GUI checks passed" -ForegroundColor Green

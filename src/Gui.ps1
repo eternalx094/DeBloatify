@@ -8,7 +8,7 @@ $script:Gui = $null
 $script:GuiXaml = @'
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="DeBloatify" Width="1120" Height="800" MinWidth="900" MinHeight="640"
+        Title="DeBloatify" Width="1120" Height="820" MinWidth="760" MinHeight="520"
         WindowStartupLocation="CenterScreen" Background="#F3F3F3"
         FontFamily="Segoe UI Variable Text, Segoe UI" FontSize="13" Foreground="#1B1B1B">
   <Window.Resources>
@@ -67,8 +67,8 @@ $script:GuiXaml = @'
   <Grid Margin="20,16,20,12">
     <Grid.RowDefinitions>
       <RowDefinition Height="Auto"/>
-      <RowDefinition Height="*"/>
-      <RowDefinition Height="170"/>
+      <RowDefinition Height="3*"/>
+      <RowDefinition Height="*" MinHeight="100" MaxHeight="200"/>
       <RowDefinition Height="Auto"/>
     </Grid.RowDefinitions>
 
@@ -93,17 +93,15 @@ $script:GuiXaml = @'
             <RowDefinition Height="*"/>
             <RowDefinition Height="Auto"/>
           </Grid.RowDefinitions>
-          <Border Style="{StaticResource Card}" Padding="14,10" Margin="0,0,0,10">
-            <DockPanel>
-              <TextBlock x:Name="SelectionSummary" DockPanel.Dock="Right" VerticalAlignment="Center" Foreground="{StaticResource Muted}"/>
-              <StackPanel Orientation="Horizontal">
-                <TextBlock Text="Start from a preset:" VerticalAlignment="Center"/>
-                <Button x:Name="PresetMinimal" Content="Minimal" ToolTip="Settings only: ads, Bing, Copilot, telemetry. Removes no apps."/>
-                <Button x:Name="PresetRecommended" Content="Recommended" ToolTip="Minimal plus junk and promo apps, more privacy and the fixes. Best for most people."/>
-                <Button x:Name="PresetAggressive" Content="Aggressive" ToolTip="Recommended plus Xbox, OneDrive, Phone Link, Outlook, Teams and more."/>
-                <Button x:Name="PresetClear" Content="Clear all"/>
-              </StackPanel>
-            </DockPanel>
+          <Border Style="{StaticResource Card}" Padding="14,6,14,10" Margin="0,0,0,10">
+            <WrapPanel>
+              <TextBlock Text="Start from a preset:" VerticalAlignment="Center" Margin="0,4,0,0"/>
+              <Button x:Name="PresetMinimal" Content="Minimal" Margin="8,4,0,0" ToolTip="Settings only: ads, Bing, Copilot, telemetry. Removes no apps."/>
+              <Button x:Name="PresetRecommended" Content="Recommended" Margin="8,4,0,0" ToolTip="Minimal plus junk and promo apps, more privacy and the fixes. Best for most people."/>
+              <Button x:Name="PresetAggressive" Content="Aggressive" Margin="8,4,0,0" ToolTip="Recommended plus Xbox, OneDrive, Phone Link, Outlook, Teams and more."/>
+              <Button x:Name="PresetClear" Content="Clear all" Margin="8,4,24,0"/>
+              <TextBlock x:Name="SelectionSummary" VerticalAlignment="Center" Margin="0,4,0,0" Foreground="{StaticResource Muted}"/>
+            </WrapPanel>
           </Border>
           <Grid Grid.Row="1">
             <Grid.ColumnDefinitions>
@@ -229,6 +227,17 @@ function New-GuiWindow {
         if ($control) { $controls[$name] = $control }
     }
     @{ Window = $window; Controls = $controls }
+}
+
+function Set-GuiWindowSize {
+    # Fit the window inside the usable screen area (small laptops, 125-150% scaling), so nothing
+    # is cut off at the right or bottom.
+    param([Parameter(Mandatory)]$Window)
+    $area = [System.Windows.SystemParameters]::WorkArea
+    $Window.MinWidth = [math]::Min($Window.MinWidth, $area.Width)
+    $Window.MinHeight = [math]::Min($Window.MinHeight, $area.Height)
+    $Window.Width = [math]::Max($Window.MinWidth, [math]::Min($Window.Width, $area.Width - 24))
+    $Window.Height = [math]::Max($Window.MinHeight, [math]::Min($Window.Height, $area.Height - 24))
 }
 
 function New-GuiBrush {
@@ -647,6 +656,7 @@ function Show-DeBloatifyGui {
     }
     $c = $script:Gui.Controls
     $script:Gui.Window.Title = 'DeBloatify {0}' -f $script:Version
+    Set-GuiWindowSize -Window $script:Gui.Window
 
     $w = $Context.Windows
     if ($w) {
