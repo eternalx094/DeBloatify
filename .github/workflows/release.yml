@@ -32,17 +32,6 @@ jobs:
           $version = $env:GITHUB_REF_NAME.TrimStart('v')
           $zip = "dist/DeBloatify-$version.zip"
           $hash = (Get-FileHash $zip -Algorithm SHA256).Hash
-          $notes = @(
-            'Removes ads, Bing search, Copilot, telemetry and junk apps from Windows 11, and fixes common problems. Every setting it changes can be undone.'
-            ''
-            '**How to use**'
-            "1. Download **DeBloatify-$version.zip** below."
-            '2. Right-click it and choose **Extract All...** (it will not run from inside the ZIP).'
-            '3. Double-click **Run-DeBloatify.cmd** and allow the administrator prompt.'
-            '4. The Recommended preset is ticked: press **Preview changes**, then **Apply**, then restart.'
-            ''
-            'Windows may warn that the file came from the internet or that the publisher could not be verified: DeBloatify is not code-signed. It is plain PowerShell - you can read every line in this repository.'
-            ''
-            "SHA-256 of the ZIP: ``$hash``"
-          ) -join "`n"
-          gh release create $env:GITHUB_REF_NAME $zip "$zip.sha256" --title "DeBloatify $version" --notes $notes
+          $notes = (Get-Content -Raw .github/release-notes.md).Replace('{VERSION}', $version).Replace('{SHA256}', $hash)
+          Set-Content -Path dist/notes.md -Value $notes -Encoding utf8
+          gh release create $env:GITHUB_REF_NAME $zip "$zip.sha256" --title "DeBloatify $version" --notes-file dist/notes.md
