@@ -21,10 +21,13 @@ jobs:
             shell: pwsh
           - os: ubuntu-latest
             shell: pwsh
+    # Step-level 'shell' can't use expressions; job-level defaults can.
+    defaults:
+      run:
+        shell: ${{ matrix.shell }}
     steps:
       - uses: actions/checkout@v4
       - name: Run unit tests
-        shell: ${{ matrix.shell }}
         run: ./tests/Run-Tests.ps1
 
   lint:
