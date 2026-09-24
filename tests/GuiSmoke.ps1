@@ -48,6 +48,19 @@ function Save-Screenshot([string]$Name) {
     $stream = [System.IO.File]::Create((Join-Path $shots "$Name.png"))
     try { $encoder.Save($stream) } finally { $stream.Close() }
     Write-Host "saved screenshot $Name.png ($width x $height)"
+
+    # Optional: also print a small JPEG into the job log, for reviewers who can't download artifacts.
+    if ($env:DEBLOATIFY_PRINT_SCREENSHOTS) {
+        $jpeg = New-Object System.Windows.Media.Imaging.JpegBitmapEncoder
+        $jpeg.QualityLevel = 80
+        $jpeg.Frames.Add([System.Windows.Media.Imaging.BitmapFrame]::Create($bitmap))
+        $memory = New-Object System.IO.MemoryStream
+        $jpeg.Save($memory)
+        $base64 = [Convert]::ToBase64String($memory.ToArray())
+        for ($i = 0; $i -lt $base64.Length; $i += 4000) {
+            Write-Host ('SHOT {0} {1}' -f $Name, $base64.Substring($i, [math]::Min(4000, $base64.Length - $i)))
+        }
+    }
 }
 
 function Get-LogText { (@($script:Gui.LogLines | ForEach-Object { $_[1] }) -join "`n") }
