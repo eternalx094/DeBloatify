@@ -9,7 +9,7 @@ Debloat and repair Windows 11. DeBloatify removes ads, Bing search, Copilot/Reca
 
 ## Quick start
 
-1. Download the repository (**Code > Download ZIP**) and extract it.
+1. Download the repository (**Code > Download ZIP**), then right-click the ZIP and choose **Extract All...** It won't run from inside the ZIP.
 2. Double-click **`Run-DeBloatify.cmd`** and accept the administrator prompt.
 3. Choose **1 - Recommended**, check the list of changes and confirm.
 4. Restart your PC.
