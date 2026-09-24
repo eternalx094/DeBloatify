@@ -204,6 +204,7 @@ function Set-RealisticStartingState {
     $script:FakeServices['DiagTrack'] = @{ Start = 2; Delayed = $false }
     $script:FakeServices['MapsBroker'] = @{ Start = 2; Delayed = $true }
     $script:FakeServices['RetailDemo'] = @{ Start = 3; Delayed = $false }
+    $script:FakeServices['dmwappushservice'] = @{ Start = 3; Delayed = $true }   # manual, delayed flag set (Windows default)
     $script:FakeTasks['\Microsoft\Windows\Customer Experience Improvement Program\Consolidator'] = $true
     $script:FakeTasks['\Microsoft\Windows\Autochk\Proxy'] = $false   # already disabled
     $script:FakeTasks['\Microsoft\Windows\Feedback\Siuf\DmClient'] = $true
@@ -229,7 +230,8 @@ It 'every PowerShell file parses without errors' {
 }
 
 It 'scripts are pure ASCII (Windows PowerShell 5.1 misreads UTF-8 without a BOM)' {
-    foreach ($f in @(Get-ChildItem -LiteralPath $root -Recurse -Include '*.ps1', '*.cmd')) {
+    # (-Include is unreliable in Windows PowerShell 5.1 - it also returns directories.)
+    foreach ($f in @(Get-ChildItem -LiteralPath $root -Recurse -File | Where-Object { '.ps1', '.cmd' -contains $_.Extension })) {
         $bytes = [System.IO.File]::ReadAllBytes($f.FullName)
         $bad = @($bytes | Where-Object { $_ -gt 127 }).Count
         Assert-True ($bad -eq 0) "$($f.Name) contains $bad non-ASCII byte(s)"
@@ -395,6 +397,8 @@ It 'applying every tweak sets every value, and undo restores the exact original 
     }
     Assert-Equal 4 $script:FakeServices['DiagTrack'].Start 'DiagTrack not disabled'
     Assert-Equal 3 $script:FakeServices['MapsBroker'].Start 'MapsBroker not manual'
+    Assert-Equal 4 $script:FakeServices['dmwappushservice'].Start 'dmwappushservice not disabled'
+    Assert-Equal $true $script:FakeServices['dmwappushservice'].Delayed 'delayed-start flag dropped on a disabled service'
     Assert-Equal $false $script:FakeTasks['\Microsoft\Windows\Feedback\Siuf\DmClient'] 'task not disabled'
     Assert-True ($result.RestartExplorer) 'Explorer restart not requested'
 
