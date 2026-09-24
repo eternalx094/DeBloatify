@@ -135,3 +135,7 @@ src/tweaks/*.ps1      tweak definitions (plain data)
 ```
 
 To add a tweak, add an entry to the right file in `src/tweaks/`. Registry values, services and scheduled tasks declared there are backed up and undone automatically.
+
+## License
+
+[MIT](LICENSE): free to use, share and modify, as long as the copyright notice stays in.
