@@ -32,17 +32,15 @@ function Save-Screenshot([string]$Name) {
     $content = $window.Content
     $width = [int][math]::Ceiling($content.ActualWidth + $content.Margin.Left + $content.Margin.Right)
     $height = [int][math]::Ceiling($content.ActualHeight + $content.Margin.Top + $content.Margin.Bottom)
-    $visual = New-Object System.Windows.Media.DrawingVisual
-    $dc = $visual.RenderOpen()
+    # Window background first, then the content. Render() already places the content at its
+    # margin offset, so it must not be shifted again.
+    $background = New-Object System.Windows.Media.DrawingVisual
+    $dc = $background.RenderOpen()
     $dc.DrawRectangle($window.Background, $null, (New-Object System.Windows.Rect(0, 0, $width, $height)))
-    # Draw the content at its own size, offset by its margin, on the window background.
-    $brush = New-Object System.Windows.Media.VisualBrush($content)
-    $brush.ViewboxUnits = 'Absolute'
-    $brush.Viewbox = New-Object System.Windows.Rect(0, 0, $content.ActualWidth, $content.ActualHeight)
-    $dc.DrawRectangle($brush, $null, (New-Object System.Windows.Rect($content.Margin.Left, $content.Margin.Top, $content.ActualWidth, $content.ActualHeight)))
     $dc.Close()
     $bitmap = New-Object System.Windows.Media.Imaging.RenderTargetBitmap($width, $height, 96, 96, [System.Windows.Media.PixelFormats]::Pbgra32)
-    $bitmap.Render($visual)
+    $bitmap.Render($background)
+    $bitmap.Render($content)
     $encoder = New-Object System.Windows.Media.Imaging.PngBitmapEncoder
     $encoder.Frames.Add([System.Windows.Media.Imaging.BitmapFrame]::Create($bitmap))
     $stream = [System.IO.File]::Create((Join-Path $shots "$Name.png"))
