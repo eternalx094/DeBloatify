@@ -1,15 +1,49 @@
 # Repair tools: one-off fixes for common Windows 11 problems. These don't change
 # settings, so there is nothing to undo. Each one only uses Windows' own tools.
 
+$script:CaptureNativeOutput = $false   # the GUI worker sets this: there is no console to write to
+
 function Invoke-NativeTool {
-    # Start-Process writes straight to the console, which keeps sfc/dism output readable
-    # (piping their UTF-16 output through PowerShell garbles it).
+    # In the console, Start-Process writes straight to the window, which keeps sfc/dism output
+    # readable (piping their UTF-16 output through PowerShell garbles it). In the GUI the output
+    # is captured to temp files and sent to the activity log instead.
     param([Parameter(Mandatory, Position = 0)][string]$FilePath, [Parameter(Position = 1)][string[]]$ArgumentList = @())
     Write-Log ('running {0} {1}' -f $FilePath, ($ArgumentList -join ' ')) Detail
-    $params = @{ FilePath = $FilePath; NoNewWindow = $true; Wait = $true; PassThru = $true }
+    $params = @{ FilePath = $FilePath; Wait = $true; PassThru = $true }
     if ($ArgumentList.Count -gt 0) { $params.ArgumentList = $ArgumentList }
-    $p = Start-Process @params
-    $p.ExitCode
+    if (-not $script:CaptureNativeOutput) {
+        $p = Start-Process @params -NoNewWindow
+        return $p.ExitCode
+    }
+    $out = [System.IO.Path]::GetTempFileName()
+    $err = [System.IO.Path]::GetTempFileName()
+    try {
+        $p = Start-Process @params -WindowStyle Hidden -RedirectStandardOutput $out -RedirectStandardError $err
+        foreach ($file in $out, $err) {
+            foreach ($line in @(ConvertFrom-NativeOutput -Bytes ([System.IO.File]::ReadAllBytes($file)))) { Write-Log $line Detail }
+        }
+        $p.ExitCode
+    } finally {
+        Remove-Item -LiteralPath $out, $err -Force -ErrorAction SilentlyContinue
+    }
+}
+
+function ConvertFrom-NativeOutput {
+    # Turns captured tool output into readable lines: handles UTF-16 (sfc) and drops
+    # progress-bar noise such as "[=====  45.0%  ]" or "Verification 12% complete."
+    param([byte[]]$Bytes)
+    if (-not $Bytes -or $Bytes.Length -eq 0) { return }
+    if ($Bytes.Length -ge 2 -and $Bytes[1] -eq 0) {
+        $text = [System.Text.Encoding]::Unicode.GetString($Bytes)
+    } else {
+        $text = [Console]::OutputEncoding.GetString($Bytes)
+    }
+    foreach ($line in ($text -split "[`r`n]+")) {
+        $t = $line.Replace([string][char]0, '').Trim()
+        if (-not $t) { continue }
+        if ($t -match '^\[[=\s\d.%]*\]$' -or $t -match '\d+(\.\d+)?\s?%') { continue }
+        $t
+    }
 }
 
 function Get-RepairCatalog {

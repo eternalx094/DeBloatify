@@ -101,7 +101,8 @@ function Invoke-ServiceChange {
         return 'Changed'
     }
     Add-ServiceBackup -TweakId $TweakId -Name $Item.Name -State $state
-    Set-ServiceStartState -Name $Item.Name -Start $target
+    # Keep the delayed-start flag on manual/disabled services, as Windows itself does.
+    Set-ServiceStartState -Name $Item.Name -Start $target -Delayed (($target -ne 2) -and $state.Delayed)
     Write-Log ('service {0} -> {1}' -f $Item.Name, $Item.StartupType) Detail
     'Changed'
 }

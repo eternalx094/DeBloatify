@@ -201,6 +201,17 @@ function Set-ServiceStartState {
     } else {
         Set-RegistryValueRaw -Path "HKLM:\SYSTEM\CurrentControlSet\Services\$Name" -Name 'Start' -Type 'DWord' -Value $Start
     }
+    if ($Start -ne 2) {
+        # sc.exe clears the delayed-start flag even for manual/disabled services. Windows keeps that flag
+        # so the service goes back to "Automatic (Delayed)" later, so put it back the way it was.
+        $key = "HKLM:\SYSTEM\CurrentControlSet\Services\$Name"
+        $flag = Get-RegistryValueState -Path $key -Name 'DelayedAutostart'
+        if ($Delayed) {
+            Set-RegistryValueRaw -Path $key -Name 'DelayedAutostart' -Type 'DWord' -Value 1
+        } elseif ($flag.Exists -and [int]$flag.Value -ne 0) {
+            Set-RegistryValueRaw -Path $key -Name 'DelayedAutostart' -Type 'DWord' -Value 0
+        }
+    }
     if ($Start -eq 4) { Stop-Service -Name $Name -Force -ErrorAction SilentlyContinue }
 }
 

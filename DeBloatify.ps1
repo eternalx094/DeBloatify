@@ -4,7 +4,8 @@
     and fix common Windows problems. Every setting it changes can be undone.
 
 .DESCRIPTION
-    Run without parameters for the interactive menu. Use parameters to run unattended.
+    Run without parameters to open the DeBloatify window (-Console for the text menu).
+    Use parameters to run unattended.
 
     Presets are cumulative:
       Minimal      Settings only: ads, Bing search, Copilot/Recall, telemetry, Edge nags.
@@ -34,12 +35,17 @@
     Don't create a System Restore point first.
 .PARAMETER NoRestartExplorer
     Don't restart Explorer at the end.
+.PARAMETER Console
+    Use the text menu instead of the window.
 .PARAMETER Force
     Don't stop when not on Windows 11 or when the restore point fails.
 
 .EXAMPLE
     .\DeBloatify.ps1
-    Opens the interactive menu.
+    Opens the DeBloatify window.
+.EXAMPLE
+    .\DeBloatify.ps1 -Console
+    Opens the text menu.
 .EXAMPLE
     .\DeBloatify.ps1 -Preset Recommended
 .EXAMPLE
@@ -61,6 +67,7 @@ param(
     [switch]$DryRun,
     [switch]$NoRestorePoint,
     [switch]$NoRestartExplorer,
+    [switch]$Console,
     [switch]$Force,
     [switch]$PauseOnExit
 )
@@ -70,13 +77,16 @@ $script:Version = '1.0.0'
 $boundParameters = $PSBoundParameters
 
 $src = Join-Path $PSScriptRoot 'src'
-foreach ($file in 'Core.ps1', 'Backup.ps1', 'Engine.ps1', 'Apps.ps1', 'Repairs.ps1', 'Ui.ps1') {
+foreach ($file in 'Core.ps1', 'Backup.ps1', 'Engine.ps1', 'Apps.ps1', 'Repairs.ps1', 'Ui.ps1', 'Gui.ps1') {
     . (Join-Path $src $file)
 }
 
 $Include = Split-ListArgument $Include
 $Exclude = Split-ListArgument $Exclude
 $Repair = Split-ListArgument $Repair
+
+$interactive = -not ($Preset -or $Include -or $Repair -or $Undo -or $List)
+$useGui = $interactive -and -not $Console
 
 $tweakCatalog = @(Get-TweakCatalog -Directory (Join-Path $src 'tweaks'))
 $appCatalog = @(Get-AppCatalog)
@@ -107,9 +117,14 @@ if ($wrongHost -or $notAdmin) {
     }
     $arguments = @(ConvertTo-ArgumentList -BoundParameters $boundParameters -ScriptPath $PSCommandPath)
     if ($notAdmin) {
-        if (-not $PauseOnExit) { $arguments += '-PauseOnExit' }
+        $elevate = @{ FilePath = $powershell; ArgumentList = $arguments; Verb = 'RunAs' }
+        if ($useGui) {
+            $elevate.WindowStyle = 'Hidden'   # the window is the whole UI; no console behind it
+        } elseif (-not $PauseOnExit) {
+            $elevate.ArgumentList += '-PauseOnExit'
+        }
         try {
-            Start-Process -FilePath $powershell -ArgumentList $arguments -Verb RunAs
+            Start-Process @elevate
             exit 0
         } catch {
             Write-Host 'DeBloatify needs administrator rights, and the UAC prompt was declined.' -ForegroundColor Red
@@ -126,7 +141,6 @@ $dataRoot = Join-Path $env:ProgramData 'DeBloatify'
 Initialize-Logging -Directory (Join-Path $dataRoot 'logs')
 Initialize-BackupStore -Path (Join-Path $dataRoot 'backup.json')
 
-$interactive = -not ($Preset -or $Include -or $Repair -or $Undo)
 $exitCode = 0
 
 try {
@@ -136,7 +150,9 @@ try {
     if (-not $windows.IsWindows11) {
         Write-Log "This PC runs build $($windows.Build). DeBloatify is made for Windows 11 (build 22000 or newer)." Warn
         if (-not $Force) {
-            if (-not $interactive -or -not (Confirm-Choice 'Continue anyway?')) {
+            $question = "This PC runs Windows build $($windows.Build). DeBloatify is made for Windows 11 (build 22000 or newer).`n`nContinue anyway?"
+            $proceed = if ($useGui) { Show-GuiMessage -Text $question -Kind Warn -YesNo } elseif ($interactive) { Confirm-Choice 'Continue anyway?' } else { $false }
+            if (-not $proceed) {
                 if (-not $interactive) { Write-Log 'Stopped. Use -Force to run anyway.' Error }
                 exit 1
             }
@@ -151,7 +167,25 @@ try {
         Write-Log "Per-user settings will be applied to the signed-in user $($signedIn.Name)." Info
     }
 
-    if ($interactive) {
+    if ($useGui) {
+        try {
+            Show-DeBloatifyGui -Context @{
+                Tweaks            = $tweakCatalog
+                Apps              = $appCatalog
+                Repairs           = $repairCatalog
+                Root              = $PSScriptRoot
+                Windows           = $windows
+                NoRestartExplorer = [bool]$NoRestartExplorer
+            }
+        } catch {
+            # The console is hidden in window mode, so errors must be shown in a message box.
+            Write-Log "Could not open the window: $($_.Exception.Message)" Error
+            Write-Log $_.ScriptStackTrace Detail
+            $message = "DeBloatify could not open its window:`n`n{0}`n`nThe text version still works: run Run-DeBloatify.cmd -Console`n`nLog: {1}" -f $_.Exception.Message, $script:LogFile
+            Show-GuiMessage -Text $message -Kind Error | Out-Null
+            $exitCode = 1
+        }
+    } elseif ($interactive) {
         Show-MainMenu -Context @{
             Tweaks            = $tweakCatalog
             Apps              = $appCatalog
@@ -191,6 +225,9 @@ try {
 } catch {
     Write-Log "Unexpected error: $($_.Exception.Message)" Error
     Write-Log $_.ScriptStackTrace Detail
+    if ($useGui) {
+        try { Show-GuiMessage -Text ("DeBloatify stopped with an error:`n`n{0}`n`nLog: {1}" -f $_.Exception.Message, $script:LogFile) -Kind Error | Out-Null } catch { }
+    }
     $exitCode = 1
 } finally {
     if ($PauseOnExit -and -not $interactive) {

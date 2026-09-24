@@ -1,0 +1,57 @@
+name: Release
+
+# Push a tag like v1.0.0 to publish a release: tests run first, then a clean ZIP
+# (only what users need) and its SHA-256 checksum are attached to a GitHub Release.
+# If the release already exists (for example, made by hand on github.com), only the
+# files are attached - its title and text are left alone. To attach the files to an
+# existing tag again, run this workflow by hand ("Run workflow") with that tag.
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing tag to build and attach the ZIP to, e.g. v1.0.0'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    env:
+      TAG: ${{ inputs.tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - name: Unit tests (Windows PowerShell 5.1)
+        shell: powershell
+        run: ./tests/Run-Tests.ps1
+
+      - name: Build the ZIP
+        shell: pwsh
+        run: ./tools/Build-Release.ps1 -Tag $env:TAG -OutputDirectory dist
+
+      - name: Publish the release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $version = $env:TAG.TrimStart('v')
+          $zip = "dist/DeBloatify-$version.zip"
+          gh release view $env:TAG --json tagName | Out-Null
+          if ($LASTEXITCODE -eq 0) {
+            Write-Host "Release $env:TAG already exists: attaching the files, keeping its title and text."
+            gh release upload $env:TAG $zip "$zip.sha256" --clobber
+          } else {
+            $global:LASTEXITCODE = 0
+            $hash = (Get-FileHash $zip -Algorithm SHA256).Hash
+            $notes = (Get-Content -Raw .github/release-notes.md).Replace('{VERSION}', $version).Replace('{SHA256}', $hash)
+            Set-Content -Path dist/notes.md -Value $notes -Encoding utf8
+            gh release create $env:TAG $zip "$zip.sha256" --title "DeBloatify $version" --notes-file dist/notes.md
+          }
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

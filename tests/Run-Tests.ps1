@@ -9,7 +9,7 @@ $ErrorActionPreference = 'Stop'
 
 $root = Split-Path -Parent $PSScriptRoot
 $src = Join-Path $root 'src'
-foreach ($file in 'Core.ps1', 'Backup.ps1', 'Engine.ps1', 'Apps.ps1', 'Repairs.ps1', 'Ui.ps1') {
+foreach ($file in 'Core.ps1', 'Backup.ps1', 'Engine.ps1', 'Apps.ps1', 'Repairs.ps1', 'Ui.ps1', 'Gui.ps1') {
     . (Join-Path $src $file)
 }
 $script:Version = 'test'
@@ -47,167 +47,10 @@ function Assert-Equal {
 }
 
 # ---------------------------------------------------------------------------
-# Fake system
+# Fake system (tests/Fakes.ps1)
 # ---------------------------------------------------------------------------
 
-$script:TestSid = 'S-1-5-21-1000-1001'
-
-function Reset-FakeSystem {
-    $script:FakeKeys = @{}
-    $script:FakeValues = @{}
-    $script:FakeServices = @{}
-    $script:FakeTasks = @{}
-    $script:FakeInstalled = @()
-    $script:FakeProvisioned = @()
-    $script:FailPaths = @()
-    $script:LogLines = New-Object System.Collections.ArrayList
-    $script:TargetUserSid = $script:TestSid
-    $script:BackupFile = Join-Path ([System.IO.Path]::GetTempPath()) ('debloatify-test-{0}.json' -f [guid]::NewGuid())
-    Initialize-BackupStore -Path $script:BackupFile
-    foreach ($k in 'HKLM:\SOFTWARE\Policies\Microsoft\Windows', 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager',
-        'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion', 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies',
-        'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced', 'HKCU:\Software\Policies\Microsoft\Windows',
-        'HKCU:\Control Panel\Accessibility\StickyKeys', 'HKCU:\Software\Classes\CLSID', 'HKCU:\System') {
-        Add-FakeKey (Get-FakeKeyName $k $script:TestSid)
-    }
-}
-
-function Get-FakeKeyName {
-    param([string]$Path, [string]$Sid)
-    $p = $Path.TrimEnd('\').ToLowerInvariant()
-    if ($p -like 'hkcu:*') {
-        if (-not $Sid) { $Sid = $script:TestSid }
-        return '{0}|{1}' -f $Sid.ToLowerInvariant(), $p
-    }
-    '|' + $p
-}
-
-function Add-FakeKey {
-    param([string]$KeyName)
-    $k = $KeyName
-    while ($true) {
-        $script:FakeKeys[$k] = $true
-        $i = $k.LastIndexOf('\')
-        if ($i -lt 0) { break }
-        $parent = $k.Substring(0, $i)
-        if ($parent -match ':$') { break }
-        $k = $parent
-    }
-}
-
-function Get-CurrentUserSid { $script:TestSid }
-function Write-Log { param([string]$Message, [string]$Level = 'Info') [void]$script:LogLines.Add("$Level $Message") }
-function Restart-Explorer { }
-
-function Test-RegistryKey {
-    param([string]$Path, [string]$Sid)
-    $script:FakeKeys.ContainsKey((Get-FakeKeyName $Path $Sid))
-}
-
-function Get-RegistryValueState {
-    param([string]$Path, [AllowEmptyString()][string]$Name, [string]$Sid)
-    $k = '{0}|{1}' -f (Get-FakeKeyName $Path $Sid), $Name.ToLowerInvariant()
-    if ($script:FakeValues.ContainsKey($k)) {
-        $v = $script:FakeValues[$k]
-        return [pscustomobject]@{ Exists = $true; Type = $v.Type; Value = $v.Value }
-    }
-    [pscustomobject]@{ Exists = $false; Type = $null; Value = $null }
-}
-
-function Set-RegistryValueRaw {
-    param([string]$Path, [AllowEmptyString()][string]$Name, [string]$Type, [AllowNull()][AllowEmptyString()]$Value, [string]$Sid)
-    if ($script:FailPaths -contains $Path) { throw "Access denied: $Path" }
-    $key = Get-FakeKeyName $Path $Sid
-    Add-FakeKey $key
-    $script:FakeValues['{0}|{1}' -f $key, $Name.ToLowerInvariant()] = @{ Type = $Type; Value = (ConvertTo-RegistryData -Type $Type -Value $Value) }
-}
-
-function Remove-RegistryValueRaw {
-    param([string]$Path, [AllowEmptyString()][string]$Name, [string]$Sid)
-    $script:FakeValues.Remove(('{0}|{1}' -f (Get-FakeKeyName $Path $Sid), $Name.ToLowerInvariant()))
-}
-
-function Remove-RegistryKeyIfEmpty {
-    param([string]$Path, [string]$Sid)
-    $key = Get-FakeKeyName $Path $Sid
-    if (-not $script:FakeKeys.ContainsKey($key)) { return $true }
-    $hasValues = @($script:FakeValues.Keys | Where-Object { $_.StartsWith("$key|") }).Count -gt 0
-    $hasSubKeys = @($script:FakeKeys.Keys | Where-Object { $_.StartsWith("$key\") }).Count -gt 0
-    if ($hasValues -or $hasSubKeys) { return $false }
-    $script:FakeKeys.Remove($key)
-    $true
-}
-
-function Get-ServiceStartState {
-    param([string]$Name)
-    if (-not $script:FakeServices.ContainsKey($Name)) { return [pscustomobject]@{ Exists = $false; Start = $null; Delayed = $false } }
-    $s = $script:FakeServices[$Name]
-    [pscustomobject]@{ Exists = $true; Start = $s.Start; Delayed = $s.Delayed }
-}
-
-function Set-ServiceStartState {
-    param([string]$Name, [int]$Start, [bool]$Delayed = $false)
-    $script:FakeServices[$Name] = @{ Start = $Start; Delayed = $Delayed }
-}
-
-function Get-TaskEnabledState {
-    param([string]$TaskPath)
-    if (-not $script:FakeTasks.ContainsKey($TaskPath)) { return [pscustomobject]@{ Exists = $false; Enabled = $false } }
-    [pscustomobject]@{ Exists = $true; Enabled = $script:FakeTasks[$TaskPath] }
-}
-
-function Set-TaskEnabledState {
-    param([string]$TaskPath, [bool]$Enabled)
-    $script:FakeTasks[$TaskPath] = $Enabled
-}
-
-function Get-InstalledAppxPackages { @($script:FakeInstalled) }
-function Get-ProvisionedAppxPackages { @($script:FakeProvisioned) }
-function Remove-InstalledAppx {
-    param([string]$PackageFullName)
-    $script:FakeInstalled = @($script:FakeInstalled | Where-Object { $_.PackageFullName -ne $PackageFullName })
-}
-function Remove-ProvisionedAppx {
-    param([string]$PackageName)
-    $script:FakeProvisioned = @($script:FakeProvisioned | Where-Object { $_.PackageName -ne $PackageName })
-}
-
-function New-FakePackage {
-    param([string]$Name, [switch]$Framework, [switch]$NonRemovable)
-    [pscustomobject]@{ Name = $Name; PackageFullName = "$($Name)_1.0.0.0_x64__8wekyb3d8bbwe"; IsFramework = [bool]$Framework; NonRemovable = [bool]$NonRemovable }
-}
-
-function Get-FakeSnapshot {
-    $lines = @()
-    $lines += @($script:FakeKeys.Keys | Sort-Object | ForEach-Object { "key $_" })
-    $lines += @($script:FakeValues.Keys | Sort-Object | ForEach-Object {
-            $v = $script:FakeValues[$_]
-            'val {0} = {1}:{2}' -f $_, $v.Type, (@($v.Value) -join ',')
-        })
-    $lines += @($script:FakeServices.Keys | Sort-Object | ForEach-Object { 'svc {0} = {1}/{2}' -f $_, $script:FakeServices[$_].Start, $script:FakeServices[$_].Delayed })
-    $lines += @($script:FakeTasks.Keys | Sort-Object | ForEach-Object { 'task {0} = {1}' -f $_, $script:FakeTasks[$_] })
-    $lines -join "`n"
-}
-
-function Set-RealisticStartingState {
-    # Values that exist on a typical Windows 11 install before DeBloatify runs.
-    $adv = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced'
-    Set-RegistryValueRaw -Path $adv -Name 'HideFileExt' -Type 'DWord' -Value 1 -Sid $script:TestSid
-    Set-RegistryValueRaw -Path $adv -Name 'TaskbarAl' -Type 'DWord' -Value 1 -Sid $script:TestSid
-    Set-RegistryValueRaw -Path $adv -Name 'Start_TrackProgs' -Type 'DWord' -Value 0 -Sid $script:TestSid   # already set
-    Set-RegistryValueRaw -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager' -Name 'SilentInstalledAppsEnabled' -Type 'DWord' -Value 1 -Sid $script:TestSid
-    Set-RegistryValueRaw -Path 'HKCU:\Control Panel\Accessibility\StickyKeys' -Name 'Flags' -Type 'String' -Value '510' -Sid $script:TestSid
-    Set-RegistryValueRaw -Path 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\DataCollection' -Name 'AllowTelemetry' -Type 'DWord' -Value 3
-    Set-RegistryValueRaw -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Power' -Name 'HiberbootEnabled' -Type 'DWord' -Value 1
-    # A policy key that already holds an unrelated value must survive undo.
-    Set-RegistryValueRaw -Path 'HKLM:\SOFTWARE\Policies\Microsoft\Edge' -Name 'SomeCompanyPolicy' -Type 'String' -Value 'keep-me'
-    $script:FakeServices['DiagTrack'] = @{ Start = 2; Delayed = $false }
-    $script:FakeServices['MapsBroker'] = @{ Start = 2; Delayed = $true }
-    $script:FakeServices['RetailDemo'] = @{ Start = 3; Delayed = $false }
-    $script:FakeTasks['\Microsoft\Windows\Customer Experience Improvement Program\Consolidator'] = $true
-    $script:FakeTasks['\Microsoft\Windows\Autochk\Proxy'] = $false   # already disabled
-    $script:FakeTasks['\Microsoft\Windows\Feedback\Siuf\DmClient'] = $true
-}
+. (Join-Path $PSScriptRoot 'Fakes.ps1')
 
 $catalogDir = Join-Path $src 'tweaks'
 $tweaks = @(Get-TweakCatalog -Directory $catalogDir)
@@ -229,7 +72,8 @@ It 'every PowerShell file parses without errors' {
 }
 
 It 'scripts are pure ASCII (Windows PowerShell 5.1 misreads UTF-8 without a BOM)' {
-    foreach ($f in @(Get-ChildItem -LiteralPath $root -Recurse -Include '*.ps1', '*.cmd')) {
+    # (-Include is unreliable in Windows PowerShell 5.1 - it also returns directories.)
+    foreach ($f in @(Get-ChildItem -LiteralPath $root -Recurse -File | Where-Object { '.ps1', '.cmd' -contains $_.Extension })) {
         $bytes = [System.IO.File]::ReadAllBytes($f.FullName)
         $bad = @($bytes | Where-Object { $_ -gt 127 }).Count
         Assert-True ($bad -eq 0) "$($f.Name) contains $bad non-ASCII byte(s)"
@@ -395,6 +239,8 @@ It 'applying every tweak sets every value, and undo restores the exact original 
     }
     Assert-Equal 4 $script:FakeServices['DiagTrack'].Start 'DiagTrack not disabled'
     Assert-Equal 3 $script:FakeServices['MapsBroker'].Start 'MapsBroker not manual'
+    Assert-Equal 4 $script:FakeServices['dmwappushservice'].Start 'dmwappushservice not disabled'
+    Assert-Equal $true $script:FakeServices['dmwappushservice'].Delayed 'delayed-start flag dropped on a disabled service'
     Assert-Equal $false $script:FakeTasks['\Microsoft\Windows\Feedback\Siuf\DmClient'] 'task not disabled'
     Assert-True ($result.RestartExplorer) 'Explorer restart not requested'
 
@@ -520,6 +366,99 @@ It 'app dry run removes nothing' {
     $result = Invoke-AppRemoval -Apps @($apps | Where-Object { $_.Id -eq 'app.bing-apps' }) -DryRun
     Assert-Equal 1 $result.Changed
     Assert-Equal 1 @($script:FakeInstalled).Count 'dry run removed a package'
+}
+
+# ---------------------------------------------------------------------------
+Write-Host 'Window (GUI)'
+
+It 'the window layout is valid XAML and every control the code uses exists' {
+    [void]([xml]$script:GuiXaml)
+    $names = @([regex]::Matches($script:GuiXaml, 'x:Name="([^"]+)"') | ForEach-Object { $_.Groups[1].Value })
+    $code = Get-Content -Raw -LiteralPath (Join-Path $src 'Gui.ps1')
+    $code = $code.Substring($code.IndexOf("'@") + 2)   # only the code after the XAML
+    $used = @([regex]::Matches($code, '(?:\$script:Gui\.Controls|\$c)\.(\w+)') | ForEach-Object { $_.Groups[1].Value })
+    Assert-True ($used.Count -gt 20) "found only $($used.Count) control references - the check itself is broken"
+    $busy = $code.Substring($code.IndexOf('function Set-GuiBusy'))
+    $busy = $busy.Substring(0, $busy.IndexOf('foreach'))
+    $used += @([regex]::Matches($busy, "'(\w+)'") | ForEach-Object { $_.Groups[1].Value })
+    foreach ($u in ($used | Sort-Object -Unique)) { Assert-True ($names -contains $u) "code uses control '$u', which is not in the XAML" }
+}
+
+It 'captured tool output is decoded and progress noise dropped' {
+    $utf16 = [System.Text.Encoding]::Unicode.GetBytes("`r`nBeginning verification phase.`r`nVerification 12% complete.`rVerification 100% complete.`r`nWindows Resource Protection did not find any integrity violations.`r`n")
+    Assert-Equal 'Beginning verification phase.|Windows Resource Protection did not find any integrity violations.' (@(ConvertFrom-NativeOutput -Bytes $utf16) -join '|')
+    $ascii = [System.Text.Encoding]::ASCII.GetBytes("Deployment Image Servicing`r`n[==========                 20.0%                          ]`r`nThe operation completed successfully.`r`n")
+    Assert-Equal 'Deployment Image Servicing|The operation completed successfully.' (@(ConvertFrom-NativeOutput -Bytes $ascii) -join '|')
+    Assert-Equal 0 @(ConvertFrom-NativeOutput -Bytes ([byte[]]@())).Count
+}
+
+function Invoke-TestWorker {
+    # Runs src/GuiWorker.ps1 exactly as the window does (same runspace setup), but synchronously.
+    param([string]$Operation, [hashtable]$Options = @{})
+    $sync = New-GuiSync
+    $Options.TestHook = Join-Path $PSScriptRoot 'WorkerHook.ps1'
+    if (-not $Options.ContainsKey('BackupPath')) { $Options.BackupPath = $script:BackupFile }
+    $Options.TargetUserSid = $script:TestSid
+    $Options.Shared = @{ Sid = $script:TestSid; Keys = $script:FakeKeys; Values = $script:FakeValues; Services = $script:FakeServices; Tasks = $script:FakeTasks }
+    $ps = New-GuiWorker -Root $root -Operation $Operation -Options $Options -Sync $sync
+    try {
+        [void]$ps.Invoke()
+        $streamErrors = @($ps.Streams.Error | ForEach-Object { [string]$_ })
+    } finally {
+        $runspace = $ps.Runspace
+        $ps.Dispose()
+        $runspace.Dispose()
+    }
+    $lines = @()
+    $line = $null
+    while ($sync.Queue.TryDequeue([ref]$line)) { $lines += $line }
+    [pscustomobject]@{ Result = $sync.Result; Error = $sync.Error; Lines = $lines; StreamErrors = $streamErrors }
+}
+
+It 'the background worker previews without changing anything' {
+    Set-RealisticStartingState
+    $before = Get-FakeSnapshot
+    $w = Invoke-TestWorker -Operation 'Preview' -Options @{ TweakIds = @($allTweaks | ForEach-Object { $_.Id }); AppIds = @('app.bing-apps') }
+    Assert-True (-not $w.Error) "worker error: $($w.Error)"
+    Assert-True ($w.Result.Changed -gt 50) "preview reported only $($w.Result.Changed) changes"
+    Assert-True (@($w.Lines | Where-Object { $_ -like 'Ok|*' }).Count -gt 20) 'preview sent no progress lines to the window'
+    Assert-Equal $before (Get-FakeSnapshot) 'preview changed state'
+}
+
+It 'the background worker applies and undoes, restoring the exact original state' {
+    Set-RealisticStartingState
+    $before = Get-FakeSnapshot
+    $apply = Invoke-TestWorker -Operation 'Apply' -Options @{ TweakIds = @($allTweaks | ForEach-Object { $_.Id }); AppIds = @() }
+    Assert-True (-not $apply.Error) "apply error: $($apply.Error)"
+    Assert-Equal 0 $apply.Result.Failed 'apply failures'
+    Assert-True ($before -ne (Get-FakeSnapshot)) 'apply changed nothing'
+    Initialize-BackupStore -Path $script:BackupFile
+    Assert-True ((Get-BackupCount) -gt 50) 'worker did not save the backup'
+    $undo = Invoke-TestWorker -Operation 'Undo' -Options @{ TweakIds = @() }
+    Assert-True (-not $undo.Error) "undo error: $($undo.Error)"
+    Assert-Equal $before (Get-FakeSnapshot) 'state after worker undo differs from the original'
+}
+
+It 'the background worker runs repairs and sends their output to the window' {
+    $w = Invoke-TestWorker -Operation 'Repair' -Options @{ RepairIds = @('repair.fake') }
+    Assert-True (-not $w.Error) "worker error: $($w.Error)"
+    Assert-Equal 1 $w.Result.Changed 'repair count'
+    Assert-True $w.Result.Reboot 'reboot flag not passed back'
+    foreach ($expected in 'Step|Fake repair', 'Detail|output from the tool', 'Info|inner message', 'Ok|Fake repair - done') {
+        Assert-True ($w.Lines -contains $expected) "missing log line '$expected'"
+    }
+}
+
+It 'the background worker reports unexpected errors instead of dying silently' {
+    $bad = Join-Path ([System.IO.Path]::GetTempPath()) ('debloatify-test-bad-{0}.json' -f [guid]::NewGuid())
+    Set-Content -LiteralPath $bad -Value '{ this is not json'
+    try {
+        $w = Invoke-TestWorker -Operation 'Undo' -Options @{ BackupPath = $bad }
+        Assert-True ($w.Error) 'no error reported for a corrupt backup file'
+        Assert-True (@($w.Lines | Where-Object { $_ -like 'Error|*' }).Count -gt 0) 'error not sent to the window log'
+    } finally {
+        Remove-Item -LiteralPath $bad -Force -ErrorAction SilentlyContinue
+    }
 }
 
 # ---------------------------------------------------------------------------
