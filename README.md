@@ -7,10 +7,16 @@ Debloat and repair Windows 11. DeBloatify removes ads, Bing search, Copilot/Reca
 - **No placebo tweaks.** There are no "gaming boost" registry myths. Every change says what it does and why.
 - **No downloads.** It's plain PowerShell that ships with Windows, and you can read every line.
 
+## Download
+
+Get the latest version from the **[Releases page](https://github.com/eternalx094/DeBloatify/releases/latest)**: download `DeBloatify-x.y.z.zip`.
+
+Found a problem? [Open an issue](https://github.com/eternalx094/DeBloatify/issues/new/choose) and attach the log from `C:\ProgramData\DeBloatify\logs`.
+
 ## Quick start
 
-1. Download the repository (**Code > Download ZIP**), then right-click the ZIP and choose **Extract All...** It won't run from inside the ZIP.
-2. Double-click **`Run-DeBloatify.cmd`** in the extracted folder and accept the administrator prompt. The DeBloatify window opens.
+1. Download the ZIP from the [Releases page](https://github.com/eternalx094/DeBloatify/releases/latest) (or **Code > Download ZIP**), then right-click it and choose **Extract All...** It won't run from inside the ZIP.
+2. Double-click **`Run-DeBloatify.cmd`** in the extracted folder and accept the administrator prompt. The DeBloatify window opens. (Windows may first warn that the publisher can't be verified: DeBloatify isn't code-signed. It's plain PowerShell, so you can read every line.)
 3. The **Recommended** preset is already ticked. Press **Preview changes** to see exactly what it would do, then **Apply**.
 4. Restart your PC when it asks.
 

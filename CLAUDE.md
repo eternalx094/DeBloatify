@@ -28,6 +28,11 @@ DeBloatify is a Windows 11 debloat and repair tool written in PowerShell. It rem
 - **GitHub Actions:** step-level `shell:` can't use expressions. Use job `defaults.run.shell`.
 - **No placebo "performance" tweaks.** Only add changes with a real, explainable effect, and say what each one does.
 
+## Releasing
+
+- Bump `$script:Version` in `DeBloatify.ps1`, merge to `main`, then push a tag `v<version>`. `.github/workflows/release.yml` runs the tests, builds the ZIP with `tools/Build-Release.ps1` (which refuses a tag that doesn't match the version), and publishes a GitHub Release with a SHA-256 checksum.
+- Pushing a tag publishes a public release. Only do it when the owner asks.
+
 ## Testing
 
 - `pwsh tests/Run-Tests.ps1` (or `powershell -File tests\Run-Tests.ps1`) runs the unit tests under StrictMode, with in-memory fakes of the registry, services, tasks and AppX (`tests/Fakes.ps1`; `tests/WorkerHook.ps1` gives the GUI worker the same fakes). They check the catalog, the GUI worker, and that apply followed by undo gives back the exact original state.
