@@ -10,24 +10,19 @@ Debloat and repair Windows 11. DeBloatify removes ads, Bing search, Copilot/Reca
 ## Quick start
 
 1. Download the repository (**Code > Download ZIP**), then right-click the ZIP and choose **Extract All...** It won't run from inside the ZIP.
-2. Double-click **`Run-DeBloatify.cmd`** and accept the administrator prompt.
-3. Choose **1 - Recommended**, check the list of changes and confirm.
-4. Restart your PC.
+2. Double-click **`Run-DeBloatify.cmd`** in the extracted folder and accept the administrator prompt. The DeBloatify window opens.
+3. The **Recommended** preset is already ticked. Press **Preview changes** to see exactly what it would do, then **Apply**.
+4. Restart your PC when it asks.
 
-```
-  DeBloatify  v1.0.0  -  debloat and repair Windows 11
-  ----------------------------------------------------------------
-  [1] Recommended   Removes ads, Bing, Copilot, telemetry and junk apps. Best for most people.
-  [2] Minimal       Settings only (ads, Bing, Copilot, telemetry). Removes no apps.
-  [3] Aggressive    Recommended + Xbox, OneDrive, Phone Link, Outlook, Teams and more.
-  [4] Custom        Choose exactly which settings and apps.
+The window has three tabs:
 
-  [5] Repair        Fix Windows Update, Start menu, search, network, corrupted files...
-  [6] Undo          Put back settings DeBloatify changed.
-  [7] Preview       See what a preset would change, without changing anything.
-```
+- **Debloat:** preset buttons (Minimal, Recommended, Aggressive) and two lists, **Settings to change** and **Apps to remove**. Every item says what it does, so you can tick and untick anything before applying.
+- **Repair:** one-click fixes for Windows Update, the Start menu, search, the network, corrupted system files and more.
+- **Undo:** put back any setting DeBloatify changed, or all of them.
 
-Not sure? Use **7 - Preview** first. It lists every change a preset would make without touching anything.
+The **Activity** box at the bottom shows what's happening; tick **Show details** to see every single change. The window stays responsive while it works, even during long repairs.
+
+Prefer a terminal? Run `Run-DeBloatify.cmd -Console` for the text menu, or see [Command line](#command-line) to run it unattended.
 
 ## What it changes
 
@@ -42,7 +37,7 @@ Not sure? Use **7 - Preview** first. It lists every change a preset would make w
 | **Apps** | Removes promo and discontinued apps (Bing apps, Clipchamp, Solitaire, Tips, Mail & Calendar, Skype, Cortana, third-party games) for every user, so new accounts don't get them either |
 | **Interface** *(opt-in)* | Classic right-click menu, left-aligned taskbar, "End task" on the taskbar, open Explorer to This PC, hide the Sticky Keys prompt... |
 
-Run `DeBloatify.ps1 -List` for the full list with ids, or press `?` followed by a number in the Custom menu to read what an item does.
+Every item in the window has a description. For the full list with ids, run `DeBloatify.ps1 -List`.
 
 ### Presets
 
@@ -77,9 +72,9 @@ These are one-off fixes using Windows' built-in tools (DISM, SFC, netsh, and oth
 
 ## Undo
 
-- **Menu > 6 - Undo** restores every recorded setting, or only the ones you choose.
+- The **Undo** tab restores every recorded setting, or only the ones you tick.
 - From the command line: `DeBloatify.ps1 -Undo`, or `DeBloatify.ps1 -Undo -Include edge.*` for part of it.
-- **Removed apps are not restored by Undo.** Reinstall them from the Microsoft Store, or roll back with the restore point (**Menu > 6 > R**, or run `rstrui.exe`).
+- **Removed apps are not restored by Undo.** Reinstall them from the Microsoft Store, or roll back with the restore point (**Undo > Open System Restore**).
 - The backup lives in `C:\ProgramData\DeBloatify\backup.json` and logs are in `C:\ProgramData\DeBloatify\logs`.
 
 ## Command line
@@ -94,6 +89,7 @@ These are one-off fixes using Windows' built-in tools (DISM, SFC, netsh, and oth
 .\DeBloatify.ps1 -Repair All
 .\DeBloatify.ps1 -Undo
 .\DeBloatify.ps1 -List
+.\DeBloatify.ps1 -Console                                  # text menu instead of the window
 ```
 
 Other switches: `-SkipApps`, `-NoRestorePoint`, `-NoRestartExplorer`, and `-Force` (run on Windows 10 or without a restore point). The exit code is 0 on success, 1 if the run stopped, and 2 if some changes failed.
@@ -114,19 +110,21 @@ If you launch the `.ps1` directly and PowerShell refuses to run it, use `Run-DeB
 powershell -File tests\Run-Tests.ps1     # unit tests (also: pwsh tests/Run-Tests.ps1 on Linux/macOS)
 ```
 
-The unit tests replace the registry, services, scheduled tasks and AppX with in-memory fakes. They check the catalog, the presets, and that apply followed by undo returns the system to its exact original state. CI also runs them on Windows PowerShell 5.1 and PowerShell 7. It runs `tests/Integration.ps1` on a disposable Windows runner too: that applies every tweak for real, undoes it, and compares the state.
+The unit tests replace the registry, services, scheduled tasks and AppX with in-memory fakes. They check the catalog, the presets, the window's background worker, and that apply followed by undo returns the system to its exact original state. CI also runs them on Windows PowerShell 5.1 and PowerShell 7. On disposable Windows runners it also runs `tests/Integration.ps1`, which applies every tweak for real, undoes it and compares the state, and `tests/GuiSmoke.ps1`, which opens the real window, clicks through Preview, Apply, Undo and Repair, and saves screenshots.
 
 Layout:
 
 ```
-DeBloatify.ps1        entry point (menu + command line, self-elevates)
+DeBloatify.ps1        entry point (window, text menu or command line; self-elevates)
 Run-DeBloatify.cmd    double-click launcher
 src/Core.ps1          logging, environment checks, registry/service/task/AppX primitives
 src/Backup.ps1        backup store used by Undo
 src/Engine.ps1        preset selection, apply, undo, app removal
 src/Apps.ps1          app catalog
 src/Repairs.ps1       repair tools
-src/Ui.ps1            console menus
+src/Gui.ps1           the window (WPF)
+src/GuiWorker.ps1     runs the window's operations in the background
+src/Ui.ps1            text menu
 src/tweaks/*.ps1      tweak definitions (plain data)
 ```
 
